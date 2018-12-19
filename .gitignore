@@ -1,0 +1,14 @@
+*.log
+tmp*
+ACE0*
+AIDA*
+*.pyc
+.idea
+*.pkl
+*.py.prof
+data
+datamachine-1.0.0.jar
+vectors
+??wiki
+ctsai-de-dump
+hji_hard*
