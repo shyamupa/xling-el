@@ -13,14 +13,7 @@ from readers.mention_reader import MentionReader, pad_batch
 class DataReader(MentionReader):
     def __init__(self, batch_size, args, canddict, istest, iters, loader, dropout, coh_dropout, fpath, num_cands,
                  shuffle=True):
-        '''
-            Reader especially for training data, but can be used for test data as
-            validation and test file inputs. The requirement is that the mention candidates
-            should be added to the TrValCandidateDict using readers.train.crosswikis_vocab
-
-            DataType = 1 corresponds to val_file
-            DataType = 2 corresponds to test_file
-            '''
+        
         super(DataReader, self).__init__()
         self.num_cands = num_cands
         self.batch_size = batch_size
