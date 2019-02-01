@@ -5,7 +5,8 @@ First set up candidate generation and other resources as described in projects [
 ### Requirements
 
 1. pytorch (0.2.0)
-2. python3
+2. pymongo
+3. python3
 
 ### Running with detected mentions 
 The current code assumes that the entity mentions have already been detected and candidates have been precomputed for the mentions.
