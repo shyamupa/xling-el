@@ -7,7 +7,7 @@ for the [xelms](https://github.com/shyamupa/xelms) project.
 1. pytorch (0.2.0+21f8ad4): installed from source, and patched for sparse tensor operations (instructions below).
 2. python3.
 3. [cogcomp-nlpy](https://github.com/CogComp/cogcomp-nlpy/). 
-4. Download the resources and trained models [here](http://bilbo.cs.illinois.edu/~upadhya3/data_release_v2.tar.gz) and place them in the folder `xling-el/data`. Right now, pre-trained models are available for German, Spanish, French, Italian, and Chinese.
+4. Download the resources and trained models [here](http://bilbo.cs.illinois.edu/~upadhya3/xel_data_release_v2.tar.gz) and place them in the folder `xling-el/data`. Right now, pre-trained models are available for German, Spanish, French, Italian, and Chinese.
 
 
 #### Resources for Candidate Generation
