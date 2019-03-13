@@ -16,9 +16,10 @@ for the [xelms](https://github.com/shyamupa/xelms) project.
 projects
 [wikidump_preprocessing](https://github.com/shyamupa/wikidump_preprocessing)
 and [wiki_candgen](https://github.com/shyamupa/wiki_candgen). 
-2. A mongo daemon needs to be running. This is where the resources generated in [wiki_candgen](https://github.com/shyamupa/wiki_candgen) will be kept for fast (and parallel) access. These resources are provided in the resources directory downloaded in step 4. above.
-   
+2. A mongo daemon needs to be running. This is where the resources generated in [wiki_candgen](https://github.com/shyamupa/wiki_candgen) will be kept for fast (and parallel) access. 
 
+Note: These resources are provided in the resources directory downloaded in step 4. above, so ideally you do not need to regenerate them, unless you plan to use a newer Wikipedia dump or a larger knowledge base.
+   
 #### Patching Pytorch for Sparse Tensor Operations
 
 This is best done in a new conda environment.
