@@ -1,76 +1,120 @@
-Code for running the entity linking model. This is part of the code for the [xelms](https://github.com/shyamupa/xelms) project. 
+Code for running the entity linking model. This is part of the code
+for the [xelms](https://github.com/shyamupa/xelms) project.
 
-First set up candidate generation and other resources as described in projects [wikidump_preprocessing](https://github.com/shyamupa/wikidump_preprocessing) and [wiki_candgen](https://github.com/shyamupa/wiki_candgen). You need them for candidate generation. 
 
-### Requirements
+#### Requirements
 
-1. pytorch (0.2.0)
-2. pymongo
-3. python3
+1. pytorch (0.2.0+21f8ad4): installed from source, and patched for sparse tensor operations (instructions below).
+2. python3.
+3. [cogcomp-nlpy](https://github.com/CogComp/cogcomp-nlpy/). 
+4. Download the resources and trained models [here](http://bilbo.cs.illinois.edu/~upadhya3/data_release_v2.tar.gz) and place them in the folder `xling-el/data`. Right now, pre-trained models are available for German, Spanish, French, Italian, and Chinese.
 
-### Running with detected mentions 
-The current code assumes that the entity mentions have already been detected and candidates have been precomputed for the mentions.
 
-0. Download the resources [here](http://bilbo.cs.illinois.edu/~upadhya3/data_release_v1.tar.gz) in a folder `xling-el/data`. 
+#### Resources for Candidate Generation
 
-1. Prepare your test mentions in a file `test_mentions_str` in the following format (each line is a single mention).
+1. First set up candidate generation and other resources as described in
+projects
+[wikidump_preprocessing](https://github.com/shyamupa/wikidump_preprocessing)
+and [wiki_candgen](https://github.com/shyamupa/wiki_candgen). 
+2. A mongo server instance is needed that uses the databases constructed in [wiki_candgen](https://github.com/shyamupa/wiki_candgen).
+   
+
+#### Patching Pytorch for Sparse Tensor Operations
+
+This is best done in a new conda environment.
+
+1. First checkout the `sparse_patch` branch from [this](https://github.com/shyamupa/pytorch) repository.
+```bash
+git clone https://github.com/shyamupa/pytorch
+cd pytorch
+git checkout sparse_patch
+```
+2. Install the patched code from source using the following commands,  
 
 ```bash
- mid <tab> wiki_id <tab> wikititle <tab> start_offset <tab> end_offset <tab> mention_surface <tab> mention_sentence <tab> types <tab> other_mention_surfaces <tab> null
+export CMAKE_PREFIX_PATH="$(dirname $(which conda))/../" # [anaconda root directory]
+
+# Install basic dependencies
+conda install numpy pyyaml mkl mkl-include setuptools cmake cffi typing
+conda install -c mingfeima mkldnn
+cd pytorch_patched
+python setup.py install
 ```
 
-where `start_offset` is the (0-indexed and inclusive) start offset of the entity mention in the `mention_sentence` and `end_offset` is the end offset (inclusive) of the entity mention, `mention_sentence` is atmost 50 (25 either side) tokens (lowercased) around the mention. 
+Ensure that the patched pytorch was successfully installed,
 
-You can leave `mid`, `wiki_id`, `wikititle` blank.
-`other_mention_surfaces` is a list of space separated surfaces of other mentions in the same document. 
+```python
+>>> import torch
+>>> torch.__version__
+'0.2.0+43662e7'
+```
 
-An example test file is provided in `examples/example_mentions_str`.
-
-2. Then, generate candidates using the candidate generator in [wiki_candgen](https://github.com/shyamupa/wiki_candgen) project as follows.
-
+### Mention Detection using NER
+1. For German, Spanish, French and Italian, download relevant [Spacy](https://spacy.io/models/) NER Models 
 ```bash
-  python -m wiki_kb.candidate_writer \
-           --lang <LANGCODE> \
-           --ncands 20 \
-           --kbfile data/mykbs/example.kb \
-           --mention_dir examples/test_mentions_str \
-           --out cands.k20
+pip install spacy
+python -m spacy download de_core_news_sm
+python -m spacy download es_core_news_md
+python -m spacy download fr_core_news_md
+python -m spacy download it_core_news_sm
 ```
 
-An example candidate file is provided in `examples/example.cands.k20`. 
-
-3. Convert the test mentions to ids in the vocab using the `file_convertor.py` script.
-
+2. For Chinese, download [stanford corenlp jar](http://nlp.stanford.edu/software/stanford-corenlp-full-2018-10-05.zip) and the [chinese model jar](http://nlp.stanford.edu/software/stanford-chinese-corenlp-2018-10-05-models.jar) and place them in a `stanford_jars` directory.
+```
+$ ls stanford_jars/
+stanford-corenlp-full-2018-10-05
+$ ls stanford_jars/stanford-corenlp-full-2018-10-05
+...
+...
+stanford-chinese-corenlp-2018-10-05-models.jar
+...
+```
+And set the bash environment variable `CORENLP_HOME` to `path/to/stanford_jars/stanford-corenlp-full-2018-10-05`.
 ```bash
-python file_convertor.py \
-           --in path/to/test_mentions_str \
-           --out path/to/test_mentions_ids \
-           --vocabpkl path/to/vocab_pickle
+export CORENLP_HOME=path/to/stanford_jars/stanford-corenlp-full-2018-10-05
 ```
 
-where the vocab pickle is the file in the `data/vocabs` folder with the suffix `*.word2idx.pkl`.  
-
-4. Run the model as follows,
-
+## Running the Model
+To run the model, use the command,
 ```bash
-python main.py \
---kb_file data/mykbs/example.kb \
---vocabpkl path/to/vocab_pickle \
---vecpkl path/to/vec_pickle \
---ncands 20 \
---ftest path/to/test_mentions_ids \
---ttcands cands.k20 \
---dump /path/to/output_file \
---restore path/to/model  
+./run_inference_on_doc.sh <lang> <infile> <outfile>
 ```
 
-where the vec_pickle is the file with the suffix `*.embeddings.pkl`.
-The output file is ordered the same as the input test file, with the format, 
+For instance, for running on a German document `test_docs/de_doc.txt`, one would run
+
 ```
-mention_sentence<tab><curids and scores>
-``` 
-where curid is the wikipedia page id (e.g., 846720 points to the wikipedia page [Bezirk](https://en.wikipedia.org/?curid=846720) which can visited as `https://en.wikipedia.org/?curid=846720)` and scores are the model scores. The highest scoring curid is the prediction.
+./run_inference_on_doc.sh de test_docs/de_doc.txt test_docs/de_doc_output.txt
+```
 
-### Running on raw text
+The json output will be produced in `test_docs/de_doc_output.txt`. 
 
-TODO: We will eventually support working directly with raw text. This functionality will be built using the candidate generator and the [cogcomp-nlpy](https://github.com/CogComp/cogcomp-nlpy/) package.  
+## Output
+
+The output file is a json serialized text annotation, with a view named `NEURAL_XEL_<lang>`. The view consists of a list of the 
+constituents that have been linked to a Wikipedia title. Below is the output for the German test document provided in the repo,
+
+```json
+...
+"viewName": "NEURAL_XEL_de",
+...
+...
+"constituents": [
+      {
+       "end": 2,
+       "label": "en.wikipedia.org/wiki/Angela_Merkel",
+       "score": 0.5128146075318596,
+       "start": 0,
+       "tokens": "Angela Merkel"
+      },
+      {
+       "end": 5,
+       "label": "NULLTITLE",
+       "score": 0.05000000074505806,
+       "start": 4,
+       "tokens": "Elim-Krankenhaus"
+      },
+      ...
+```
+
+The label field for each constituent is the predicted Wikipedia entity for the span identified by the `start` and `end` token index. 
+Here a label of `NULLTITLE` means that the named entity detected by the mention detection system could not be linked to any entity. 

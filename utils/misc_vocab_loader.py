@@ -3,7 +3,7 @@ import os
 import sys
 
 from utils.constants import NULL_TITLE_WID, OOV_TOKEN
-from utils.misc_utils import load_vocab, read_candidates_dict, load, save, load_wid2desc, map_desc
+from utils.misc_utils import load_vocab, read_candidates_dict, load, save
 
 
 class VocabLoader(object):
@@ -36,18 +36,18 @@ class VocabLoader(object):
             logging.info("loaded type vocab of size %d", len(self.type2idx))
         return self.type2idx, self.idx2type
 
-    def load_wid2desc(self, path=None):
-        pkl_path = path + ".pkl"
-        if os.path.exists(pkl_path):
-            logging.info("pkl found! loading %s", pkl_path)
-            wid2desc = load(pkl_path)
-        else:
-            logging.info("loading known wids descriptions")
-            wid2desc = load_wid2desc(path)
-            logging.info("saving pkl wid2desc")
-            save(pkl_path, wid2desc)
-        self.wid2desc = map_desc(wid2desc, w2i=self.word2idx)
-        return self.wid2desc
+    # def load_wid2desc(self, path=None):
+    #     pkl_path = path + ".pkl"
+    #     if os.path.exists(pkl_path):
+    #         logging.info("pkl found! loading %s", pkl_path)
+    #         wid2desc = load(pkl_path)
+    #     else:
+    #         logging.info("loading known wids descriptions")
+    #         wid2desc = load_wid2desc(path)
+    #         logging.info("saving pkl wid2desc")
+    #         save(pkl_path, wid2desc)
+    #     self.wid2desc = map_desc(wid2desc, w2i=self.word2idx)
+    #     return self.wid2desc
 
     def load_mix0_cand_dict(self, path):
         pkl_path = path + ".candict.pkl"

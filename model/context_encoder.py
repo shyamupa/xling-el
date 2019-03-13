@@ -53,7 +53,7 @@ class ContextEncoder(nn.Module):
             nn.init.xavier_normal(self.fflayer_loc_cxt.weight)
 
         else:
-            logging.info("Using conv for cxt encoder")
+            # logging.info("Using conv for cxt encoder")
             self.left_cxt_enc = ConvSemSim(inp_type="left_cxt",
                                            embed_dim=args["wdim"],
                                            filter_num=args["filter_num"],

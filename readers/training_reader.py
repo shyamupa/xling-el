@@ -13,7 +13,6 @@ from readers.mention_reader import MentionReader, pad_batch
 class DataReader(MentionReader):
     def __init__(self, batch_size, args, canddict, istest, iters, loader, dropout, coh_dropout, fpath, num_cands,
                  shuffle=True):
-        
         super(DataReader, self).__init__()
         self.num_cands = num_cands
         self.batch_size = batch_size

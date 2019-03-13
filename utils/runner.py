@@ -156,10 +156,12 @@ class Runner(MyEngine):
     def load_checkpoint(model, optimizer, ckpt_path):
         if os.path.isfile(ckpt_path):
             logging.info("=> loading checkpoint %s", ckpt_path)
-            checkpoint = torch.load(ckpt_path,map_location='cpu')
+            # checkpoint = torch.load(ckpt_path,map_location='cpu')
+            checkpoint = torch.load(ckpt_path, map_location=lambda storage, loc: storage) # load everything on CPU (torch 0.2 patched)
             # model.load_state_dict(checkpoint['state_dict'])
-            # if model does not have params, its ok.
-            model.load_state_dict(checkpoint['state_dict'], strict=False)
+            # if model does not have some params (like type embedding), its ok.
+            # model.load_state_dict(checkpoint['state_dict'], strict=False)
+            load_state_dict(model, checkpoint['state_dict'], strict=False)
             # any other relevant state variables can be extracted from the checkpoint dict
             # optimizer.load_state_dict(checkpoint['optimizer'])
             # print("=> loaded checkpoint '{}' (epoch {})"
@@ -170,3 +172,38 @@ class Runner(MyEngine):
             logging.info("=> no checkpoint at %s !!!", ckpt_path)
             logging.info("dying ...")
             sys.exit(0)
+
+# COPIED FROM PYTORCH 1.0.0
+def load_state_dict(model, state_dict, strict=True):
+    """Copies parameters and buffers from :attr:`state_dict` into
+    this module and its descendants. If :attr:`strict` is ``True`` then
+    the keys of :attr:`state_dict` must exactly match the keys returned
+    by this module's :func:`state_dict()` function.
+
+    Arguments:
+        state_dict (dict): A dict containing parameters and
+            persistent buffers.
+        strict (bool): Strictly enforce that the keys in :attr:`state_dict`
+            match the keys returned by this module's `:func:`state_dict()`
+            function.
+    """
+    own_state = model.state_dict()
+    for name, param in state_dict.items():
+        if name in own_state:
+            if isinstance(param, Parameter):
+                # backwards compatibility for serialized parameters
+                param = param.data
+            try:
+                own_state[name].copy_(param)
+            except Exception:
+                raise RuntimeError('While copying the parameter named {}, '
+                                   'whose dimensions in the model are {} and '
+                                   'whose dimensions in the checkpoint are {}.'
+                                   .format(name, own_state[name].size(), param.size()))
+        elif strict:
+            raise KeyError('unexpected key "{}" in state_dict'
+                           .format(name))
+    if strict:
+        missing = set(own_state.keys()) - set(state_dict.keys())
+        if len(missing) > 0:
+            raise KeyError('missing keys in state_dict: "{}"'.format(missing))

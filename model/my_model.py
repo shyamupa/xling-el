@@ -42,10 +42,10 @@ class MyModel(nn.Module):
             nn.init.xavier_normal(self.fflayer_dbow.weight)
         self.log_sigma_sq = args["logsigsq"]  # b/w -2 and 5
         init_val = math.sqrt(math.e ** self.log_sigma_sq)
-        logging.info("init sigma is %f", init_val)
-        self.ecloss_sigma = torch.nn.Parameter(MyTensor([init_val]))
-        self.etloss_sigma = torch.nn.Parameter(MyTensor([init_val]))
-        self.ctloss_sigma = torch.nn.Parameter(MyTensor([init_val]))
+        # logging.info("init sigma is %f", init_val)
+        # self.ecloss_sigma = torch.nn.Parameter(MyTensor([init_val]))
+        # self.etloss_sigma = torch.nn.Parameter(MyTensor([init_val]))
+        # self.ctloss_sigma = torch.nn.Parameter(MyTensor([init_val]))
 
         self.cxt_encoder = ContextEncoder(args=args)
 

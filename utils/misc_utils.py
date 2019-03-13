@@ -3,14 +3,14 @@ import pickle
 import sys
 import logging
 import os
+from utils.mongo_backed_dict import MongoBackedDict
 import utils.constants as K
 import json
-from utils.vocab_utils import get_idx
+from pymongo.errors import DocumentTooLarge
 
 logging.basicConfig(format='%(asctime)s: %(filename)s:%(lineno)d: %(message)s', level=logging.INFO)
 
 import time
-import numpy as np
 
 __author__ = 'Shyam'
 
@@ -40,20 +40,18 @@ def load_json(fname):
         return json.load(f)
 
 
+# TODO this is useless now, use mongo
 def load_langlinks(lang):
     fr2entitles, en2frtitles = load_map("data/" + lang + "wiki/idmap/fr2entitles")
     return fr2entitles, en2frtitles
 
 
-def load_crosswikis(crosswikis_pkl):
-    stime = time.time()
-    print("[#] Loading normalized crosswikis dictionary ... ")
-    crosswikis_dict = load(crosswikis_pkl)
-    ttime = (time.time() - stime) / 60.0
-    print(" [#] Crosswikis dictionary loaded!. Time: {0:2.4f} mins. Size : {1}".format(ttime, len(crosswikis_dict)))
-    return crosswikis_dict
+def load_langlinks_mongo(lang, overwrite=False):
+    fr2entitles, en2frtitles = load_map_mongo("data/" + lang + "wiki/idmap/fr2entitles", overwrite=overwrite)
+    return fr2entitles, en2frtitles
 
 
+# TODO this is useless now, use mongo
 def load_map(path):
     pkl_path = path + ".pkl"
     if os.path.exists(pkl_path):
@@ -83,183 +81,34 @@ def load_map(path):
     return m, rev_m
 
 
-def load_counts(path, uniqc=True):
-    pkl_path = path + ".pkl"
-    if os.path.exists(pkl_path):
-        logging.info("pkl found! loading counts %s", pkl_path)
-        item2count = load(pkl_path)
-    else:
+def load_map_mongo(path, overwrite=False):
+    m = MongoBackedDict(dbname=path)
+    rev_m = None
+    if m.size() == 0 or overwrite:
+        logging.info("dropping existing collection ...")
+        m.drop_collection()
+        tmp = {}
+        # logging.info("pkl not found ...")
+        logging.info("loading map from %s", path)
         f = open(path)
-        item2count = {}
         err = 0
-        logging.info("pkl not found ...")
-        logging.info("loading counts from %s", path)
         for idx, l in enumerate(f):
-            if uniqc:
-                parts = l.strip().split(" ")
-            else:
-                parts = l.strip().split("\t")
+            parts = l.strip().split("\t")
             if len(parts) != 2:
                 logging.info("error on line %d %s", idx, parts)
                 err += 1
                 continue
-            if uniqc:
-                cnt, item = parts
-            else:
-                item, cnt = parts
-            if item in item2count:
-                logging.info("duplicate key %s was this on purpose?", item)
-            item2count[item] = int(cnt)
-        logging.info("map of size %d loaded %d err lines", len(item2count), err)
-        logging.info("saving pkl... %s", pkl_path)
-        obj = item2count
-        save(pkl_path, obj)
-    return item2count
-
-
-def load_ordered_keys(path):
-    data = [line.strip().split("\t") for line in open(path)]
-    data = [d[0] for d in data]
-    return data
-
-
-def load_vocab(path, wid=False):
-    pkl_path = path + ".pkl"
-    if os.path.exists(pkl_path):
-        logging.info("pkl found! loading map %s", pkl_path)
-        m, rev_m = load(pkl_path)
-    else:
-        f = open(path)
-        if wid:
-            m = {K.NULL_TITLE_WID: K.NULL_TITLE_ID}
-        else:
-            m = {K.OOV_TOKEN: K.OOV_ID}
-        logging.info("loading vocab from %s", path)
-        for idx, l in enumerate(f):
-            word = l.strip()
-            m[word] = idx + 1
-        rev_m = {v: k for k, v in m.items()}
-        logging.info("vocab of size %d loaded", len(m))
-        logging.info("saving pkl... %s", pkl_path)
-        obj = m, rev_m
-        save(pkl_path, obj)
+            k, v = parts
+            if k in tmp:
+                logging.info("duplicate key %s was this on purpose?", k)
+            tmp[k] = v
+        rev_m = {v: k for k, v in tmp.items()}
+        logging.info("inserting map of size %d to mongo (%d err lines)", len(tmp), err)
+        m.bulk_insert(regular_map=tmp, insert_freq=len(tmp))
     return m, rev_m
 
 
-def load_wid2desc(path):
-    f = open(path)
-    m = {}
-    err = 0
-    logging.info("loading desc from %s", path)
-    for idx, l in enumerate(f):
-        parts = l.strip().split("\t")
-        if len(parts) != 2:
-            # logging.info("error on line %d %s", idx, parts)
-            err += 1
-            continue
-        k, v = parts
-        m[k] = v.split(" ")
-    m[K.NULL_TITLE_WID] = 100 * [K.OOV_TOKEN]  # [K.OOV_ID]
-    logging.info("map of size %d loaded err lines %d", len(m), err)
-    return m
-
-
-def map_desc(wid2desc, w2i):
-    logging.info("prepping descvecs")
-    padded_cnt = 0
-    trimmed_cnt = 0
-    # missed = 0
-    # descs = []
-    # for i in range(len(idx2wid)):
-    # wid = idx2wid[i]
-    # if wid not in wid2desc:
-    #     missed += 1
-    #     desc_idxs = [K.OOV_ID] * 100
-    # else:
-    ans = {}
-    for wid in wid2desc:
-        tokens = wid2desc[wid]
-        desc_idxs = [get_idx(word=tok, w2i=w2i) for tok in tokens]
-        desc_idxs = [idx for idx in desc_idxs if idx != K.OOV_ID]
-        if len(desc_idxs) < 100:
-            desc_idxs += [K.OOV_ID] * (100 - len(desc_idxs))
-            padded_cnt += 1
-        else:
-            desc_idxs = desc_idxs[:100]
-            trimmed_cnt += 1
-        # descs.append(desc_idxs)
-        # if i > 0 and i % 10000 == 0:
-        #     logging.info("seen %d", i)
-        ans[wid] = desc_idxs
-    logging.info("padded %d trimmed %d desc", padded_cnt, trimmed_cnt)
-    return ans
-
-
-def load_wid2title_map(path):
-    pkl_path = path + ".pkl"
-    if os.path.exists(pkl_path):
-        logging.info("pkl found! loading map %s", pkl_path)
-        m, rev_m = load(pkl_path)
-    else:
-        f = open(path)
-        m = {K.NULL_TITLE_WID: K.NULL_TITLE}  # wiki id for NULL_TITLE
-        logging.info("loading vocab from %s", path)
-        for idx, l in enumerate(f):
-            parts = l.strip().split("\t")
-            if len(parts) != 3: continue
-            wid, title, cnt = parts
-            m[wid] = title
-        rev_m = {v: k for k, v in m.items()}
-        logging.info("vocab of size %d loaded", len(m))
-        logging.info("saving pkl... %s", pkl_path)
-        obj = m, rev_m
-        save(pkl_path, obj)
-    return m, rev_m
-
-
-def load_title2cnt(f):
-    pkl_path = f + ".pkl"
-    if os.path.exists(pkl_path):
-        logging.info("found counts pkl %s", pkl_path)
-        title2cnt = load(pkl_path)
-        return title2cnt
-    else:
-        title2cnt = {}
-        for line in open(f):
-            parts = line.strip().split("\t")
-            if len(parts) != 3:
-                continue
-            _, title, cnt = parts
-            title2cnt[title] = int(cnt)
-        save(pkl_path, title2cnt)
-        logging.info("saving counts pkl to %s", pkl_path)
-    return title2cnt
-
-
-# TODO this is useless
-def load_xiao_mid2name(path="data/xiao/mid2name.tsv"):
-    pkl_path = path + ".pkl"
-    if os.path.exists(pkl_path):
-        logging.info("pkl found! loading map %s", pkl_path)
-        xiao_mid2names = load(pkl_path)
-    else:
-        xiao_mid2names = {}
-        for line in open(path):
-            parts = line.strip().split('\t')
-            if len(parts) != 2: continue
-            mid, name = parts
-            mid = mid.strip("/")
-            mid = mid.replace("/", ".")
-            if mid not in xiao_mid2names:
-                xiao_mid2names[mid] = []
-            xiao_mid2names[mid].append(name)
-        logging.info("map of size %d loaded", len(xiao_mid2names))
-        logging.info("saving pkl... %s", pkl_path)
-        obj = xiao_mid2names
-        save(pkl_path, obj)
-    return xiao_mid2names
-
-
+# TODO this is useless now, use mongo
 def load_id2title(f):
     pkl_path = f + ".pkl"
     if os.path.exists(pkl_path):
@@ -286,11 +135,43 @@ def load_id2title(f):
     return id2t, t2id, redirect_set
 
 
+def load_id2title_mongo(path, overwrite=False):
+    mongo_id2t = MongoBackedDict(dbname=path + ".id2t")
+    # TODO Maybe you can use the same db and its reverse?
+    mongo_t2id = MongoBackedDict(dbname=path + ".t2id")
+    # TODO fix below
+    redirect_set = None
+    if mongo_id2t.size() == 0 or mongo_t2id.size() == 0 or overwrite:
+        logging.info("db not found at %s. creating ...", path)
+        id2t, t2id = {}, {}
+        redirect_set = set([])
+        for line in open(path):
+            parts = line.strip().split("\t")
+            if len(parts) != 3:
+                logging.info("bad line %s", line)
+                continue
+            # page_id, title = parts
+            page_id, page_title, is_redirect = parts
+            id2t[page_id] = page_title
+            t2id[page_title] = page_id
+            if is_redirect == "1":
+                redirect_set.add(page_title)
+        mongo_id2t.bulk_insert(regular_map=id2t, insert_freq=len(id2t))
+        mongo_t2id.bulk_insert(regular_map=t2id, insert_freq=len(t2id))
+        # obj = id2t, t2id, redirect_set
+        # save(pkl_path, obj)
+        # logging.info("saving id2t pkl to %s", pkl_path)
+    logging.info("id2t of size %d", mongo_id2t.size())
+    logging.info("t2id of size %d", mongo_t2id.size())
+    return mongo_id2t, mongo_t2id, redirect_set
+
+
 def load_disamb2title(f):
     id2t, t2id = load_map(f)
     return id2t, t2id
 
 
+# TODO this is useless now, use mongo
 def load_redirects(path):
     pkl_path = path + ".pkl"
     if os.path.exists(pkl_path):
@@ -320,6 +201,36 @@ def load_redirects(path):
     return redirect2title
 
 
+def load_redirects_mongo(path, overwrite=False):
+    # pkl_path = path + ".pkl"
+    # if os.path.exists(pkl_path):
+    # logging.info("pkl found! loading map %s", pkl_path)
+    # r2t = load(pkl_path)
+    # else:
+    mongo_r2t = MongoBackedDict(dbname=path)
+    if mongo_r2t.size() == 0 or overwrite:
+        logging.info("db not found at %s. creating ...", path)
+        f = open(path)
+        r2t = {}
+        err = 0
+        logging.info("pkl not found ...")
+        logging.info("loading map from %s", path)
+        for idx, l in enumerate(f):
+            parts = l.strip().split("\t")
+            if len(parts) != 2:
+                logging.info("error on line %d %s", idx, parts)
+                err += 1
+                continue
+            redirect, title = parts
+            if redirect in r2t:
+                logging.info("duplicate keys! was this on purpose?")
+            r2t[redirect] = title
+        logging.info("map of size %d loaded %d err lines", len(r2t), err)
+        mongo_r2t.bulk_insert(regular_map=r2t, insert_freq=len(r2t))
+    logging.info("r2t of size %d", mongo_r2t.size())
+    return mongo_r2t
+
+
 NamedEntity = namedtuple('NamedEntity', ['wid', 'title', 'mid', 'types', 'count'])
 
 
@@ -347,24 +258,7 @@ def load_nekb(kbfile):
     return wid2ne, mid2ne, title2ne
 
 
-def memory_usage_psutil():
-    # return the memory usage in GB
-    import psutil
-    process = psutil.Process(os.getpid())
-    mem = process.memory_info()[0] / float(2 ** 30)
-    logging.info("current memory usage:%d GB", mem)
-    return mem
-
-
-ConllToken = namedtuple("ConllToken",
-                        ['token', "wikititle",
-                         "name_mention",
-                         "entity_type",
-                         "entity_type_confidence",
-                         "enwikititle",
-                         "tag"])
-
-
+# TODO this is useless now, use mongo
 def load_prob_map(out_prefix, kind):
     path = out_prefix + "." + kind
     pkl_path = path + ".pkl"
@@ -392,154 +286,76 @@ def load_prob_map(out_prefix, kind):
     return mmap
 
 
-def get_conll_sentences(filename):
-    """
-    Returns all the (content) sentences in a corpus file
-    :param corpus_file: the corpus file
-    :return: the next sentence (yield)
-    """
-    bad = 0
-    # Read all the sentences in the file
-    f_in = open(filename)
-    s = []
-    for line in f_in:
-        if len(line.strip()) == 0:
-            yield s
-            s = []
+def load_prob_map_mongo(out_prefix, kind, dbname=None, force_rewrite=False):
+    path = out_prefix + "." + kind
+    if dbname is None:
+        dbname = path
+    logging.info("dbname is %s", dbname)
+    probmap = MongoBackedDict(dbname=dbname)
+    logging.info("reading collection %s", path)
+    if probmap.size() > 0 and not force_rewrite:
+        logging.info("collection already exists in db (size=%d). returning ...", probmap.size())
+        return probmap
+    else:
+        if force_rewrite:
+            logging.info("dropping existing collection in db.")
+            probmap.drop_collection()
+        # mmap = defaultdict(lambda: defaultdict(float))
+        mmap = {}
+        for idx, line in enumerate(open(path)):
+            parts = line.split("\t")
+            if idx > 0 and idx % 1000000 == 0:
+                logging.info("read line %d", idx)
+            if len(parts) != 4:
+                logging.info("error on line %d: %s", idx, line)
+                continue
+            y, x, prob, _ = parts
+            if y not in mmap:
+                mmap[y] = {}
+            mmap[y][x] = float(prob)
+        for y in list(mmap.keys()):
+            # TODO will below ever be false?
+            # if y not in probmap:
+            # Nested dict keys cannot have '.' and '$' in mongodb
+            # tmpdict = {x: mmap[y][x] for x in mmap[y]}
+            if len(mmap[y]) > 5000:
+                logging.info("string %s can link to %d items (>10k)... skipping", y, len(mmap[y]))
+                # mmap[y] = []
+                # continue
+                del mmap[y]
+            else:
+                # tmpdict = [(x, mmap[y][x]) for x in mmap[y]]
+                mmap[y] = list(mmap[y].items())
+                # try:
+                #     probmap[y] = tmpdict
+                # except DocumentTooLarge as e:
+                #     print(y, len(tmpdict))
+                #     print(e)
+        probmap.bulk_insert(regular_map=mmap, insert_freq=len(mmap))
+    return probmap
+
+
+def load_vocab(path, wid=False):
+    pkl_path = path + ".pkl"
+    if os.path.exists(pkl_path):
+        logging.info("pkl found! loading map %s", pkl_path)
+        m, rev_m = load(pkl_path)
+    else:
+        f = open(path)
+        if wid:
+            m = {K.NULL_TITLE_WID: K.NULL_TITLE_ID}
         else:
-            parts = line.strip().split(' ')
-            if len(parts) == 3:
-                token, _, tag = parts
-                s.append(ConllToken(token=token, wikititle=None, name_mention=None,
-                                    entity_type=None, entity_type_confidence=None, enwikititle=None, tag=tag))
-            elif len(parts) == 7:
-                token, wikititle, name_mention, entity_type, entity_type_confidence, enwikititle, tag = parts
-                conlltok = ConllToken(token, wikititle, name_mention, entity_type, entity_type_confidence, enwikititle,
-                                      tag)
-                s.append(conlltok)
-            else:
-                bad += 1
-    logging.info("bad line %d", bad)
-
-
-def safe_next(it):
-    try:
-        return next(it)
-    except StopIteration:
-        it.reset()
-        return next(it)
-
-
-class InterleaveIterator:
-    def __init__(self, iterators, dist, maxsteps):
-        self.cnt = 0
-        if len(iterators) != len(dist):
-            logging.info("dist %s",dist)
-            logging.info("iterators %s",len(iterators))
-            raise NotImplementedError
-        self.iterators = iterators
-        self.seen = {i: 0 for i, _ in enumerate(iterators)}
-        self.finished = False
-        self.dist = dist
-        self.maxsteps = maxsteps
-
-    def reset(self):
-        pass
-        # self.finished = False
-        # self.small_it.reset()
-
-    def __iter__(self):  # needed to make iterator
-        return self
-
-    # def stop_or_next(self):
-    #     try:
-    #         nxt = next(self.small_it)
-    #         return nxt
-    #     except StopIteration:
-    #         self.finished = True
-    #         raise StopIteration
-
-    def __next__(self):
-
-        if self.finished:
-            raise StopIteration
-
-        idx = np.random.choice(range(len(self.iterators)), p=self.dist)
-        # idx = self.cnt % self.freq
-        # if idx == 0:
-        #     # print("self.cnt",self.cnt)
-        #     nxt = safe_next(self.train_it)
-        # elif idx == 1:
-        #     # print("self.cnt",self.cnt)
-        #     nxt = safe_next(self.it1)
-        # elif idx == 2:
-        #     # print("self.cnt",self.cnt)
-        #     nxt = safe_next(self.it2)
-        # else:
-        #     # print("self.cnt",self.cnt)
-        #     # nxt = self.stop_or_next()
-        #     nxt = safe_next(self.small_it)
-        nxt = safe_next(self.iterators[idx])
-        self.seen[idx] += 1
-        self.cnt += 1
-        if self.cnt % 5000 == 0:
-            logging.info("%s %d", self.seen, sum(self.seen.values()))
-        # if self.cnt >= self.maxsteps:
-        #     self.finished = True
-        #     logging.info("finishing!")
-        #     logging.info("%s %d", self.seen, sum(self.seen.values()))
-        return nxt
-
-
-class MixedIterator:
-    def __init__(self, small_it, large_it, max_small_iters, freq=2):
-        self.cnt = 0
-        self.small_it = small_it
-        self.large_it = large_it
-        self.freq = freq
-        self.small_iters = 0
-        self.max_small_iters = max_small_iters
-
-    def reset(self):
-        pass
-        # if self.max_small_iters == self.small_iters:
-        #     return
-        # else:
-        #     self.small_it.reset()
-        # self.large_it.reset()
-
-    def __iter__(self):  # needed to make iterator
-        return self
-
-    def __next__(self):
-        if self.small_iters >= self.max_small_iters:
-            logging.info("Stopping because enough small iters made!")
-            raise StopIteration
-        self.cnt += 1
-        if self.cnt % self.freq == 0:
-            # logging.info("sending large")
-            # print("sending large")
-            try:
-                return next(self.large_it)
-            except StopIteration:
-                self.large_it.reset()
-                return next(self.large_it)
-        # logging.info("sending small")
-        # print("sending small")
-        try:
-            return next(self.small_it)
-        except StopIteration:
-            # logging.info("resetting small")
-            self.small_it.reset()
-            self.small_iters += 1
-            # print("resetting small iters:",self.small_iters)
-            if self.small_iters >= self.max_small_iters:
-                logging.info("Stopping because enough small iters made!")
-                # print("Stopping because enough small iters made!")
-                # sys.exit(0)
-                raise StopIteration
-            else:
-                return next(self.small_it)
+            m = {K.OOV_TOKEN: K.OOV_ID}
+        logging.info("loading vocab from %s", path)
+        for idx, l in enumerate(f):
+            word = l.strip()
+            m[word] = idx + 1
+        rev_m = {v: k for k, v in m.items()}
+        logging.info("vocab of size %d loaded", len(m))
+        logging.info("saving pkl... %s", pkl_path)
+        obj = m, rev_m
+        save(pkl_path, obj)
+    return m, rev_m
 
 
 def read_candidates_dict(path):
@@ -594,7 +410,3 @@ def read_candidates_dict(path):
         #######REPLACE########
     logging.info("#%d missed gold in candidates!", missing_gold)
     return ddict
-
-
-if __name__ == '__main__':
-    read_candidates_dict(sys.argv[1])
